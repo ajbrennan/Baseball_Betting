@@ -1,0 +1,465 @@
+```{r}
+library(gsheet)
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(geosphere)
+
+#https://projects.fivethirtyeight.com/mlb-api/mlb_elo.csv
+#https://projects.fivethirtyeight.com/mlb-api/mlb_elo_latest.csv
+#/Users/anthonybrennan/Downloads/mlb_elo.csv
+raw <- read.csv("https://projects.fivethirtyeight.com/mlb-api/mlb_elo.csv")
+
+mlb <- data.frame(game.id = seq(1,nrow(raw)),
+                  date = as.Date(raw$date), game.num = 1, season = raw$season, playoff = raw$playoff,
+                  away.team = raw$team2, home.team = raw$team1,
+                  away.game.num = as.integer(NA), home.game.num = as.integer(NA),
+                  away.rate = raw$rating2_pre, home.rate = raw$rating1_pre,
+                  away.pit.rate = raw$pitcher2_rgs, home.pit.rate = raw$pitcher1_rgs,
+                  away.pit.adj = raw$pitcher2_adj, home.pit.adj = raw$pitcher1_adj,
+                  away.win = raw$rating_prob2, home.win = raw$rating_prob1,
+                  doublehead = as.integer(NA),
+                  away.travel = as.integer(NA), home.travel = as.integer(NA),
+                  away.yest = as.integer(NA), home.yest = as.integer(NA),
+                  away.final = raw$score2, home.final = raw$score1
+                  )
+mlb <- mlb %>%
+  filter(season>2014,season!=2020,playoff=="") %>%
+  mutate(away.team=if_else(away.team=="ANA","LAA",away.team),
+         away.team=if_else(away.team=="FLA","MIA",away.team),
+         away.team=if_else(away.team=="KCR","KC",away.team),
+         away.team=if_else(away.team=="SDP","SD",away.team),
+         away.team=if_else(away.team=="SFG","SF",away.team),
+         away.team=if_else(away.team=="TBD","TB",away.team),
+         away.team=if_else(away.team=="WSN","WAS",away.team),
+         home.team=if_else(home.team=="ANA","LAA",home.team),
+         home.team=if_else(home.team=="FLA","MIA",home.team),
+         home.team=if_else(home.team=="KCR","KC",home.team),
+         home.team=if_else(home.team=="SDP","SD",home.team),
+         home.team=if_else(home.team=="SFG","SF",home.team),
+         home.team=if_else(home.team=="TBD","TB",home.team),
+         home.team=if_else(home.team=="WSN","WAS",home.team))
+mlb$date[which(mlb$date=="2019-09-06" & mlb$away.team=="OAK")] = as.Date("2019-05-19")
+mlb <- mlb[order(nrow(mlb):1),]
+#mlb <- arrange(mlb,date)
+mlb$game.id <- seq(1,nrow(mlb))
+
+mlb.teams <- c("ARI","ATL","BAL","BOS","CHC","CHW","CIN","CLE","COL","DET","HOU","KC","LAA","LAD","MIA","MIL","MIN","NYM","NYY","OAK","PHI","PIT","SD","SEA","SF","STL","TB","TEX","TOR","WAS")
+for(i in c(1:30)){
+  temp <- filter(mlb, away.team == mlb.teams[i] | home.team == mlb.teams[i], is.na(doublehead))
+  for(j in c(1:nrow(temp))){
+    num <- temp$game.id[j]
+    mlb$doublehead[num] <- nrow(filter(temp,date==temp$date[j]))-1
+  }
+}
+for(i in c(1:30)){
+  temp <- filter(mlb, away.team == mlb.teams[i] | home.team == mlb.teams[i])
+  for(j in c(1:nrow(temp))){
+    if(temp$away.team[j] == mlb.teams[i]){
+      num <- temp$game.id[j]
+      mlb$away.yest[num] <- nrow(filter(temp,date==temp$date[j]-1))
+    }
+    if(temp$home.team[j] == mlb.teams[i]){
+      num <- temp$game.id[j]
+      mlb$home.yest[num] <- nrow(filter(temp,date==temp$date[j]-1))
+    }
+  }
+}
+for(i in c(1:30)){
+  temp <- filter(mlb, away.team == mlb.teams[i] | home.team == mlb.teams[i])
+  for(j in c(2015:2019,2021)){
+    temp2 <- filter(temp,season==j)
+    for(k in c(1:nrow(temp2))){
+      if(temp2$away.team[k] == mlb.teams[i]){
+        num <- temp2$game.id[k]
+        mlb$away.game.num[num] <- k
+      }
+      if(temp2$home.team[k] == mlb.teams[i]){
+        num <- temp2$game.id[k]
+        mlb$home.game.num[num] <- k
+      }
+    }
+  }
+}
+
+loc <- data.frame(matrix(ncol = 3, nrow = 30))
+x <- c("team", "long","lat")
+colnames(loc) <- x
+loc$team <- mlb.teams
+loc$long <- c(-112.0675133,-84.4689525,-76.6227698,-71.0981172,-87.6558899,-87.6346931,-84.5071904,-81.6858458,-104.994519,-83.0493191,-95.3564899,-94.4808422,-117.8834119,-118.2407581,-80.2203884,-87.9719091,-93.2790431,-73.8466345,-73.9268563,-122.2017169,-75.1679395,-80.006358,-117.1577153,-122.3327673,-122.3899435,-90.1932964,-82.654493,-97.0849471,-79.3901937,-77.0082772)
+loc$lat <- c(33.4454785,33.8906143,39.2838665,42.346505,41.9480672,41.829766,39.0972264,41.4959954,39.7560699,42.3390523,29.7567234,39.0515473,33.8002162,34.0737398,25.7780448,43.0280242,44.9818611,40.7569966,40.8296535,37.7514898,39.9058291,40.4467673,32.7073764,47.5913747,37.7785116,38.6225764,27.7682258,32.7470521,43.6416568,38.8727804)
+for(i in c(1:30)){
+  temp <- mlb %>%
+    filter(away.team == loc$team[i] | home.team == loc$team[i]) %>%
+    arrange(desc(game.id))
+  for(j in c(1:nrow(temp))){
+    if(temp$away.team[j] == loc$team[i]){
+      num <- temp$game.id[j]
+      if(j==nrow(temp)){
+        prev.loc <- filter(loc,team==mlb.teams[i])
+        curr.loc <- filter(loc,team==temp$home.team[j])
+        mlb$away.travel[num] <- distm(c(prev.loc$long,prev.loc$lat),c(curr.loc$long,curr.loc$lat))/1000
+      }
+      else{
+        prev.loc <- filter(loc,team==temp$home.team[j+1])
+        curr.loc <- filter(loc,team==temp$home.team[j])
+        mlb$away.travel[num] <- distm(c(prev.loc$long,prev.loc$lat),c(curr.loc$long,curr.loc$lat))/1000
+      }
+    }
+    if(temp$home.team[j] == loc$team[i]){
+      num <- temp$game.id[j]
+      if(j==nrow(temp)){
+        prev.loc <- filter(loc,team==mlb.teams[i])
+        curr.loc <- filter(loc,team==temp$home.team[j])
+        mlb$home.travel[num] <- distm(c(prev.loc$long,prev.loc$lat),c(curr.loc$long,curr.loc$lat))/1000
+      }
+      else
+        prev.loc <- filter(loc,team==temp$home.team[j+1])
+        curr.loc <- filter(loc,team==temp$home.team[j])
+        mlb$home.travel[num] <- distm(c(prev.loc$long,prev.loc$lat),c(curr.loc$long,curr.loc$lat))/1000
+    }
+  }
+}
+mlb <- mutate(mlb,away.yest=as.factor(away.yest),home.yest=as.factor(home.yest),
+              final=home.final-away.final,winner=if_else(final>0,1,0))
+
+today.mlb <- filter(mlb,date==Sys.Date())
+mlb <- filter(mlb,date<Sys.Date())
+
+#today.mlb <- today.mlb[order(nrow(today.mlb):1),]
+today.mlb <- today.mlb %>%
+  group_by(date,away.team,game.num) %>%
+  mutate(game.num = game.num + seq(0, by=1, length.out=n()))
+```
+
+```{r}
+games.2015 <- read.csv("/Users/anthonybrennan/Downloads/gl2010_19/GL2015.csv",header = FALSE)
+games.2016 <- read.csv("/Users/anthonybrennan/Downloads/gl2010_19/GL2016.csv",header = FALSE)
+games.2017 <- read.csv("/Users/anthonybrennan/Downloads/gl2010_19/GL2017.csv",header = FALSE)
+games.2018 <- read.csv("/Users/anthonybrennan/Downloads/gl2010_19/GL2018.csv",header = FALSE)
+games.2019 <- read.csv("/Users/anthonybrennan/Downloads/gl2010_19/GL2019.csv",header = FALSE)
+games.stats <- rbind(games.2015,games.2016,games.2017,games.2018,games.2019)
+games.stats <- games.stats %>%
+  rename(date=V1,doublehead=V2, #0-1 game, 1-game 1,2-game 2
+         day.of.week=V3, #"Sun","Mon","Tue","Wed","Thu","Fri","Sat"
+         away.team=V4,away.league=V5,away.game.num=V6,home.team=V7,home.league=V8,home.game.num=V9,
+         away.final=V10,home.final=V11,outs=V12,day.night=V13, #"D" or "N"
+         incomplete=V14, #"yyyymmdd,park,vs,hs,len" len-outs at time of interruption
+         forfeit=V15, #"V", "H", "T"-the game was ruled a no-decision
+         protest=V16, #"P"-unidentified,"V"- fail visiting,"H"-fail home,"X"-upheld away,"Y"-upheld home
+         park=V17,attendance=V18,game.time=V19,away.inn=V20,home.inn=V21,
+         away.abs=V22,away.hits=V23,away.2b=V24,away.3b=V25,away.hr=V26,away.rbi=V27,
+         away.sac.hits=V28,away.sac.flies=V29,away.hbp=V30,away.bb=V31,away.ibb=V32,away.k=V33,
+         away.sb=V34,away.sb.caught=V35,away.off.2play=V36,away.catcher.int=V37,away.left.on.base=V38,
+         away.pitchers=V39,away.ind.earned.runs=V40,away.earned.runs=V41,away.wild.pitches=V42,away.balks=V43,
+         away.putouts=V44,away.assists=V45,away.errors=V46,away.passed.balls=V47,
+         away.def.2plays=V48,away.def.3plays=V49,
+         home.abs=V50,home.hits=V51,home.2b=V52,home.3b=V53,home.hr=V54,home.rbi=V55,
+         home.sac.hits=V56,home.sac.flies=V57,home.hbp=V58,home.bb=V59,home.ibb=V60,home.k=V61,
+         home.sb=V62,home.sb.caught=V63,home.off.2play=V64,home.catcher.int=V65,home.left.on.base=V66,
+         home.pitchers=V67,home.ind.earned.runs=V68,home.earned.runs=V69,home.wild.pitches=V70,home.balks=V71,
+         home.putouts=V72,home.assists=V73,home.errors=V74,home.passed.balls=V75,
+         home.def.2plays=V76,home.def.3plays=V77,
+         ump.home.id=V78,ump.home=V79,ump.1b.id=V80,ump.1b=V81,ump.2b.id=V82,ump.2b=V83,ump.3b.id=V84,ump.3b=V85,
+         ump.lf.id=V86,ump.lf=V87,ump.rf.id=V88,ump.rf=V89, #NA if empty (none) if empty
+         away.man.id=V90,away.man=V91,home.man.id=V92,home.man=V93,
+         win.pit.id=V94,win.pit=V95,lose.pit.id=V96,lose.pit=V97,save.pit.id=V98,save.pit=V99,
+         win.bat.rbi.id=V100,win.bat.rbi=V101, #NA if empty (none) if empty
+         away.pitcher.id=V102,away.pitcher=V103,home.pitcher.id=V104,home.pitcher=V105,
+         away.bat1.id=V106,away.bat1=V107,away.bat1.pos=V108,away.bat2.id=V109,away.bat2=V110,away.bat2.pos=V111,
+         away.bat3.id=V112,away.bat3=V113,away.bat3.pos=V114,away.bat4.id=V115,away.bat4=V116,away.bat4.pos=V117,
+         away.bat5.id=V118,away.bat5=V119,away.bat5.pos=V120,away.bat6.id=V121,away.bat6=V122,away.bat6.pos=V123,
+         away.bat7.id=V124,away.bat7=V125,away.bat7.pos=V126,away.bat8.id=V127,away.bat8=V128,away.bat8.pos=V129,
+         away.bat9.id=V130,away.bat9=V131,away.bat9.pos=V132,
+         home.bat1.id=V133,home.bat1=V134,home.bat1.pos=V135,home.bat2.id=V136,home.bat2=V137,home.bat2.pos=V138,
+         home.bat3.id=V139,home.bat3=V140,home.bat3.pos=V141,home.bat4.id=V142,home.bat4=V143,home.bat4.pos=V144,
+         home.bat5.id=V145,home.bat5=V146,home.bat5.pos=V147,home.bat6.id=V148,home.bat6=V149,home.bat6.pos=V150,
+         home.bat7.id=V151,home.bat7=V152,home.bat7.pos=V153,home.bat8.id=V154,home.bat8=V155,home.bat8.pos=V156,
+         home.bat9.id=V157,home.bat9=V158,home.bat9.pos=V159,
+         other=V160,info=V161) %>%
+  mutate(away.team=if_else(away.team=="ANA","LAA",away.team),away.team=if_else(away.team=="CHA","CHW",away.team),
+         away.team=if_else(away.team=="CHN","CHC",away.team),away.team=if_else(away.team=="KCA","KC",away.team),
+         away.team=if_else(away.team=="LAN","LAD",away.team),away.team=if_else(away.team=="NYA","NYY",away.team),
+         away.team=if_else(away.team=="NYN","NYM",away.team),away.team=if_else(away.team=="SDN","SD",away.team),
+         away.team=if_else(away.team=="SFN","SF",away.team),away.team=if_else(away.team=="SLN","STL",away.team),
+         away.team=if_else(away.team=="TBA","TB",away.team),
+         home.team=if_else(home.team=="ANA","LAA",home.team),home.team=if_else(home.team=="CHA","CHW",home.team),
+         home.team=if_else(home.team=="CHN","CHC",home.team),home.team=if_else(home.team=="KCA","KC",home.team),
+         home.team=if_else(home.team=="LAN","LAD",home.team),home.team=if_else(home.team=="NYA","NYY",home.team),
+         home.team=if_else(home.team=="NYN","NYM",home.team),home.team=if_else(home.team=="SDN","SD",home.team),
+         home.team=if_else(home.team=="SFN","SF",home.team),home.team=if_else(home.team=="SLN","STL",home.team),
+         home.team=if_else(home.team=="TBA","TB",home.team))
+```
+```{r}
+games.stats <- mutate(games.stats,top1=NA,top2=NA,top3=NA,top4=NA,top5=NA,top6=NA,top7=NA,top8=NA,top9=NA,
+                      top10=NA,top11=NA,top12=NA,top13=NA,top14=NA,top15=NA,top16=NA,top17=NA,top18=NA,top19=NA,
+                      bot1=NA,bot2=NA,bot3=NA,bot4=NA,bot5=NA,bot6=NA,bot7=NA,bot8=NA,bot9=NA,
+                      bot10=NA,bot11=NA,bot12=NA,bot13=NA,bot14=NA,bot15=NA,bot16=NA,bot17=NA,bot18=NA,bot19=NA)
+for(i in c(1:nrow(games.stats))){
+  away.inn <- unlist(strsplit(games.stats$away.inn[i],""))
+  away.para <- match("(",away.inn)
+  home.inn <- unlist(strsplit(games.stats$home.inn[i],""))
+  home.para <- match("(",home.inn)
+  if(!is.na(away.para)){
+    away.inn[away.para] <- paste(away.inn[away.para+1],away.inn[away.para+2],sep = "")
+    away.inn <- away.inn[-c(away.para+1,away.para+2,away.para+3)]
+  }
+  if(!is.na(home.para)){
+    home.inn[home.para] <- paste(home.inn[home.para+1],home.inn[home.para+2],sep = "")
+    home.inn <- home.inn[-c(home.para+1,home.para+2,home.para+3)]
+  }
+  for(j in c(1:19)){
+    games.stats[i,j+161] <- away.inn[j]
+    games.stats[i,j+180] <- home.inn[j]
+  }
+}
+games.stats <- mutate(games.stats,bot5=if_else(bot5=="x",as.character(NA),bot5)
+                      ,bot6=if_else(bot6=="x",as.character(NA),bot6)
+                      ,bot7=if_else(bot7=="x",as.character(NA),bot7)
+                      ,bot8=if_else(bot8=="x",as.character(NA),bot8)
+                      ,bot9=if_else(bot9=="x",as.character(NA),bot9))
+for(i in c(1:38)){
+  games.stats[,i+161] <- as.integer(games.stats[,i+161])
+}
+games.stats <- mutate(games.stats,away5=top1+top2+top3+top4+top5,
+                      home5=if_else(!is.na(bot5),bot1+bot2+bot3+bot4+bot5,bot1+bot2+bot3+bot4))
+games.stats$date <- ymd(games.stats$date)
+fives <- games.stats[,c(1,3,4,6,7,9:11,13,200,201)]
+mlb <- merge(mlb,fives,by=c("date","away.team","home.team","away.game.num","home.game.num","away.final","home.final"))
+mlb <- mutate(mlb,final5=home5-away5,winner5=if_else(final5>0,1,if_else(final5<0,0,.5)))
+```
+
+
+
+
+```{r}
+mlb.model <- mlb
+
+c1 <- lm(final~away.rate+home.rate,mlb.model)
+summary(c1)
+k <- predict(c1, mlb.model)
+mlb.model$c1 <- k
+mlb.model$c1res <- lm(c1)$residuals
+ggplot(mlb.model, aes(c1res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(c1res,final)) +
+  geom_point()
+
+c2 <- lm(final~away.rate+home.rate+away.pit.adj+home.pit.adj,mlb.model)
+summary(c2)
+l <- predict(c2, mlb.model)
+mlb.model$c2 <- l
+mlb.model$c2res <- lm(c2)$residuals
+ggplot(mlb.model, aes(c2res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(c2res,final)) +
+  geom_point()
+
+c3 <- lm(final~away.rate+home.rate+away.pit.rate+home.pit.rate,mlb.model)
+summary(c3)
+m <- predict(c3, mlb.model)
+mlb.model$c3 <- m
+mlb.model$c3res <- lm(c3)$residuals
+ggplot(mlb.model, aes(c3res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(c3res,final)) +
+  geom_point()
+
+c4 <- lm(final~away.rate+home.rate+away.pit.adj+home.pit.adj+doublehead+away.travel+home.travel+away.yest+home.yest,mlb.model)
+summary(c4)
+n <- predict(c4, mlb.model)
+mlb.model$c4 <- n
+mlb.model$c4res <- lm(c4)$residuals
+ggplot(mlb.model, aes(c4res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(c4res,final)) +
+  geom_point()
+
+c5 <- lm(final~away.rate+home.rate+away.pit.adj+home.pit.adj+doublehead+away.travel+home.travel+away.yest+home.yest+home.team,mlb.model)
+summary(c5)
+o <- predict(c5, mlb.model)
+mlb.model$c5 <- o
+mlb.model$c5res <- lm(c5)$residuals
+ggplot(mlb.model, aes(c5res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(c5res,final)) +
+  geom_point()
+
+#plot(c1)
+#plot(c2)
+#plot(c3)
+#plot(c4)
+sd(mlb.model$c1res)
+sd(mlb.model$c2res)
+sd(mlb.model$c3res)
+x <- filter(mlb.model,away.game.num<30)
+sd(mlb.model$c4res)
+sd(x$c4res)
+sd(mlb.model$c5res)
+#sd6 <-filter(mlb.model,!is.na(model6))
+#sd(sd6$model6)
+#which.max(hatvalues(a4))
+#hat <- as.data.frame(hatvalues(a6))
+#filter(hat,hatvalues(a6)>.15)
+```
+
+```{r}
+odds <- gsheet2tbl('https://docs.google.com/spreadsheets/d/143Aby1tCInoZkhCJ121oSKoEffjENidXcbYpmAI6Mpc/edit#gid=408469873?usp=sharing')
+today.odds <- data.frame(date = as.Date(odds$Date[c(TRUE, FALSE)]),
+                         game.num = 1,
+                         away.team = odds$Teams[c(TRUE, FALSE)], home.team = odds$Teams[c(FALSE, TRUE)],
+                         away.spr = odds$Spr[c(TRUE, FALSE)], home.spr = odds$Spr[c(FALSE, TRUE)],
+                         away.odds = odds$Odds[c(TRUE, FALSE)], home.odds = odds$Odds[c(FALSE, TRUE)],
+                         away.ml.imp = as.numeric(sub("%","",odds$Spr.Imp[c(TRUE, FALSE)]))/100, 
+                         home.ml.imp = as.numeric(sub("%","",odds$Spr.Imp[c(FALSE, TRUE)]))/100,
+                         away.ml = odds$ML[c(TRUE, FALSE)], home.ml = odds$ML[c(FALSE, TRUE)],
+                         away.spr.imp = as.numeric(sub("%","",odds$ML.Imp[c(TRUE, FALSE)]))/100, 
+                         home.spr.imp = as.numeric(sub("%","",odds$ML.Imp[c(FALSE, TRUE)]))/100)
+today.odds <- filter(today.odds,date==Sys.Date())
+today.odds <- today.odds %>%
+  group_by(date,away.team,game.num) %>%
+  mutate(game.num = game.num + seq(0, by=1, length.out=n()))
+today.games <- merge(today.odds,today.mlb)
+sd4 <- sd(mlb.model$c4res)
+today.games$pred.final <- suppressWarnings(predict(c4,today.games))
+
+cat("Predicted betting lines\n")
+today.games %>%
+  arrange(game.id) %>%
+  mutate(str.pick=ifelse(pred.final<0,away.team,home.team),
+         away.prob=pnorm(-pred.final/sd4),home.prob=pnorm(pred.final/sd4),
+         away.neg=pnorm(-(pred.final-1.5)/sd4),away.pos=pnorm(-(pred.final+1.5)/sd4),
+         home.neg=pnorm((pred.final+1.5)/sd4),home.pos=pnorm((pred.final-1.5)/sd4),
+         away.imp=if_else(away.prob<.5,round(100/away.prob-100,0),round(-away.prob*100/(1-away.prob),0)),
+         home.imp=if_else(home.prob<.5,round(100/home.prob-100,0),round(-home.prob*100/(1-home.prob),0)),
+         away1.5=if_else(away.spr>0,if_else(away.neg<.5,round(100/away.neg-100,0),round(-away.neg*100/(1-away.neg),0)),if_else(away.pos<.5,round(100/away.pos-100,0),round(-away.pos*100/(1-away.pos),0))),
+         home1.5=if_else(home.spr<0,if_else(home.pos<.5,round(100/home.pos-100,0),round(-home.pos*100/(1-home.pos),0)),if_else(home.neg<.5,round(100/home.neg-100,0),round(-home.neg*100/(1-home.neg),0))),
+         a="||") %>%
+  select(away.team,home.team,pred.final,away1.5,home1.5,a,away.imp,home.imp)
+cat("Current betting lines with better than predicted value\n")
+today.games %>%
+  arrange(game.id) %>%
+  mutate(str.pick=ifelse(pred.final<0,away.team,home.team),
+         away.prob=pnorm(-pred.final/sd4),home.prob=pnorm(pred.final/sd4),
+         away.neg=pnorm(-(pred.final-1.5)/sd4),away.pos=pnorm(-(pred.final+1.5)/sd4),
+         home.neg=pnorm((pred.final+1.5)/sd4),home.pos=pnorm((pred.final-1.5)/sd4),
+         away.imp=if_else(away.prob<.5,round(100/away.prob-100,0),round(-away.prob*100/(1-away.prob),0)),
+         home.imp=if_else(home.prob<.5,round(100/home.prob-100,0),round(-home.prob*100/(1-home.prob),0)),
+         away1.5=if_else(away.spr>0,if_else(away.neg<.5,round(100/away.neg-100,0),round(-away.neg*100/(1-away.neg),0)),if_else(away.pos<.5,round(100/away.pos-100,0),round(-away.pos*100/(1-away.pos),0))),
+         home1.5=if_else(home.spr<0,if_else(home.pos<.5,round(100/home.pos-100,0),round(-home.pos*100/(1-home.pos),0)),if_else(home.neg<.5,round(100/home.neg-100,0),round(-home.neg*100/(1-home.neg),0))),
+         a="||",
+         away.ml=if_else(away.ml>away.imp,away.ml,0),home.ml=if_else(home.ml>home.imp,home.ml,0),
+         away.spr=if_else(away.odds>away1.5,away.odds,0),home.spr=if_else(home.odds>home1.5,home.odds,0)) %>%
+  select(away.team,home.team,away.spr,home.spr,a,away.ml,home.ml)
+```
+
+
+
+
+```{r}
+mlb.model <- mlb
+mlb.model$total <- mlb.model$away.final + mlb.model$home.final
+
+e1 <- lm(total~away.pit.rate+home.pit.rate,mlb.model)
+summary(e1)
+k <- predict(e1, mlb.model)
+mlb.model$e1 <- k
+mlb.model$e1res <- lm(e1)$residuals
+ggplot(mlb.model, aes(e1res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(e1res,total)) +
+  geom_point()
+summary(mlb.model$e1)
+sd(mlb.model$e1res)
+
+e2 <- lm(total~away.pit.rate+home.pit.rate+doublehead+away.travel+home.travel+away.yest+home.yest,mlb.model)
+summary(e2)
+l <- predict(e2, mlb.model)
+mlb.model$e2 <- l
+mlb.model$e2res <- lm(e2)$residuals
+ggplot(mlb.model, aes(e2res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(e2res,total)) +
+  geom_point()
+summary(mlb.model$e2)
+sd(mlb.model$e2res)
+```
+
+
+
+
+
+
+
+
+
+```{r}
+mlb.model <- mlb
+
+d1 <- lm(final5~away.rate+home.rate,mlb.model)
+summary(d1)
+k <- predict(d1, mlb.model)
+mlb.model$d1 <- k
+mlb.model$d1res <- lm(d1)$residuals
+ggplot(mlb.model, aes(d1res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(d1res,final5)) +
+  geom_point()
+
+d2 <- lm(final5~away.rate+home.rate+away.pit.adj+home.pit.adj,mlb.model)
+summary(d2)
+l <- predict(d2, mlb.model)
+mlb.model$d2 <- l
+mlb.model$d2res <- lm(d2)$residuals
+ggplot(mlb.model, aes(d2res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(d2res,final5)) +
+  geom_point()
+
+d3 <- lm(final5~away.rate+home.rate+away.pit.rate+home.pit.rate,mlb.model)
+summary(d3)
+m <- predict(d3, mlb.model)
+mlb.model$d3 <- m
+mlb.model$d3res <- lm(d3)$residuals
+ggplot(mlb.model, aes(d3res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(d3res,final5)) +
+  geom_point()
+
+d4 <- lm(final5~away.rate+home.rate+away.pit.adj+home.pit.adj+doublehead+away.travel+home.travel+away.yest+home.yest,mlb.model)
+summary(d4)
+n <- predict(d4, mlb.model)
+mlb.model$d4 <- n
+mlb.model$d4res <- lm(d4)$residuals
+ggplot(mlb.model, aes(d4res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(d4res,final5)) +
+  geom_point()
+
+d5 <- lm(final5~away.rate+home.rate+away.pit.adj+home.pit.adj+doublehead+away.travel+home.travel+away.yest+home.yest+home.team,mlb.model)
+summary(d5)
+o <- predict(d5, mlb.model)
+mlb.model$d5 <- o
+mlb.model$d5res <- lm(d5)$residuals
+ggplot(mlb.model, aes(d5res)) +
+  geom_histogram(binwidth = 1)
+ggplot(mlb.model, aes(d5res,final5)) +
+  geom_point()
+
+#plot(d1)
+#plot(d2)
+#plot(d3)
+#plot(d4)
+sd(mlb.model$d1res)
+sd(mlb.model$d2res)
+sd(mlb.model$d3res)
+sd(mlb.model$d4res)
+sd(mlb.model$d5res)
+#sd6 <-filter(mlb.model,!is.na(model6))
+#sd(sd6$model6)
+#which.max(hatvalues(a4))
+#hat <- as.data.frame(hatvalues(a6))
+#filter(hat,hatvalues(a6)>.15)
+```
+
+
