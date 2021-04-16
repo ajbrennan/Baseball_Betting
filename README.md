@@ -6,3 +6,4 @@ Things I am working to add:
 - Total runs prediction, models I've made are very weak right now so I don't know how feasible it is right now using the current data
 - Other types of machine learning models (possibly try and incorporate something similar the poisson model in my soccer project, which could help with my total runs dilema)
 - Set up a webscrapping code so that I don't have to manually imput odds data into a spreadsheet.
+- I was previously working on 5 inning predictions, but am putting it on pause for the moment
