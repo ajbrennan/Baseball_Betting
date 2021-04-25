@@ -135,11 +135,11 @@ today.mlb <- today.mlb %>%
 
 Calculate 5 & 9 inning spreads
 ```{r}
-games.2015 <- read.csv("./gl2010_19/GL2015.csv",header = FALSE)
-games.2016 <- read.csv("./gl2010_19/GL2016.csv",header = FALSE)
-games.2017 <- read.csv("./gl2010_19/GL2017.csv",header = FALSE)
-games.2018 <- read.csv("./gl2010_19/GL2018.csv",header = FALSE)
-games.2019 <- read.csv("./gl2010_19/GL2019.csv",header = FALSE)
+games.2015 <- read.csv("./Data/gl2010_19/GL2015.csv",header = FALSE)
+games.2016 <- read.csv("./Data/gl2010_19/GL2016.csv",header = FALSE)
+games.2017 <- read.csv("./Data/gl2010_19/GL2017.csv",header = FALSE)
+games.2018 <- read.csv("./Data/gl2010_19/GL2018.csv",header = FALSE)
+games.2019 <- read.csv("./Data/gl2010_19/GL2019.csv",header = FALSE)
 games.stats <- rbind(games.2015,games.2016,games.2017,games.2018,games.2019)
 games.stats <- games.stats %>%
   rename(date=V1,doublehead=V2, #0-1 game, 1-game 1,2-game 2
